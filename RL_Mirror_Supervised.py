@@ -525,7 +525,7 @@ class RL(object):
             else:
                 loss_expert = 0
 
-            total_loss = 0.0*loss_clip + self.weight*loss_expert
+            total_loss = loss_clip + self.weight*loss_expert
             print(k, loss_expert)
             optimizer.zero_grad()
             total_loss.backward(retain_graph=True)
@@ -533,10 +533,6 @@ class RL(object):
             optimizer.step()
         if self.lr > 1e-4:
             self.lr *= 0.99
-        if self.weight > 10:
-            self.weight *= 0.99
-        if self.weight < 10:
-            self.weight = 10.0
 
     def validation(self):
         batch_states, batch_actions, batch_next_states, batch_rewards, batch_q_values = self.validation_trajectory.sample(300)
@@ -585,21 +581,21 @@ class RL(object):
         self.model.set_noise(-2.0)
         while True:
             self.save_model("torch_model/corl_demo.pt")
-            while len(self.memory.memory) < 30000:
+            while len(self.memory.memory) < 3000:
                 #print(len(self.memory.memory))
                 if self.counter.get() == num_threads:
                     for i in range(num_threads):
                         self.memory.push(self.queue.get())
                     self.counter.increment()
-                if len(self.memory.memory) < 30000 and self.counter.get() == num_threads + 1:
+                if len(self.memory.memory) < 3000 and self.counter.get() == num_threads + 1:
                     self.counter.reset()
                     self.traffic_light.switch()
 
-            self.update_critic(128, 640)
-            self.update_actor(128, 640, supervised=False)
+            self.update_critic(128, 64)
+            self.update_actor(128, 64, supervised=False)
             self.clear_memory()
-            self.run_test(num_test=10)
-            self.run_test_with_noise(num_test=10)
+            self.run_test(num_test=2)
+            self.run_test_with_noise(num_test=2)
             #self.validation()
             self.plot_statistics()
             self.traffic_light.switch()
@@ -615,6 +611,7 @@ def mkdir(base, name):
     return path
 
 if __name__ == '__main__':
+    torch.set_num_threads(1)
     env = cassieRLEnvMirrorIKTraj()
     env.delay = False
     env.noisy = False
