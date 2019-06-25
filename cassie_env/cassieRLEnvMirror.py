@@ -161,6 +161,27 @@ class cassieRLEnvMirror(cassieRLEnvMultiTraj):
 		self.cassie_state = self.sim.step_pd(self.u)
 		return self.get_state()
 
+	def reset_by_speed(self, speed, y_speed=0, phase=None):
+		self.orientation = 0
+		self.speed = speed#(random.randint(-10, 10)) / 10.0
+		self.y_speed = 0
+		orientation = self.orientation + (random.randint(0, 1) * 2 - 1) * np.pi / 10
+		quaternion = euler2quat(z=orientation, y=0, x=0)
+		if phase is None:
+			self.phase = random.randint(0, 27)
+		else:
+			self.phase = phase
+		self.time = 0
+		self.counter = 0
+		cassie_sim_free(self.sim.c)
+		self.sim.c = cassie_sim_init()
+		qpos, qvel = self.get_kin_state()
+		qpos[3:7] = quaternion
+		self.sim.set_qpos(qpos)
+		self.sim.set_qvel(qvel)
+		self.cassie_state = self.sim.step_pd(self.u)
+		return self.get_state()
+
 	def reset_by_phase(self, phase):
 		self.orientation = 0
 		self.speed = (random.randint(-10, 10)) / 10
