@@ -380,7 +380,7 @@ class RL(object):
         if validation:
             max_sample = 300
         else:
-            max_sample = 3000
+            max_sample = 600
         while total_sample < max_sample:
             model_expert.set_noise(-2.0)
             score = 0
@@ -390,16 +390,9 @@ class RL(object):
 
                 states.append(state.data.numpy())
                 mu, log_std, v = model_expert(state)
-                mu_residual, _, _ = residual_model(state)
                 #print(log_std.exp())
-                action = (mu + mu_residual * 0)
-                pos_index = [7, 8, 9, 14, 20, 21, 22, 23, 28, 34]
-                vel_index = [6, 7, 8, 12, 18, 19, 20, 21, 25, 31]
-                ref_pos, ref_vel = expert_env.get_kin_next_state()
-                saved_action = action.data.numpy() + ref_pos[pos_index]
+                action = mu
 
-
-                #actions.append(action.data.numpy())
                 actions.append(action.data.numpy())
                 values.append(v.data.numpy())
                 eps = torch.randn(mu.size())
@@ -525,7 +518,7 @@ class RL(object):
             else:
                 loss_expert = 0
 
-            total_loss = loss_clip + self.weight*loss_expert
+            total_loss = self.policy_weight * loss_clip + self.weight*loss_expert
             print(k, loss_expert)
             optimizer.zero_grad()
             total_loss.backward(retain_graph=True)
@@ -591,8 +584,8 @@ class RL(object):
                     self.counter.reset()
                     self.traffic_light.switch()
 
-            self.update_critic(128, 64)
-            self.update_actor(128, 64, supervised=False)
+            self.update_critic(128, self.critic_update_rate)
+            self.update_actor(128, self.actor_update_rate, supervised=self.supervised)
             self.clear_memory()
             self.run_test(num_test=2)
             self.run_test_with_noise(num_test=2)
@@ -610,16 +603,17 @@ def mkdir(base, name):
         os.makedirs(path)
     return path
 
-if __name__ == '__main__':
+
+def train_policy_rl():
     torch.set_num_threads(1)
     env = cassieRLEnvMirrorIKTraj()
     env.delay = False
     env.noisy = False
     ppo = RL(env, [256, 256])
-    '''for speed in range(-5, 0):
-        ppo.collect_expert_samples(300, "expert_model/SoftFootStablePelvisIKBackwardJune19Size256X256.pt", speed=speed/10.0, y_speed=0)
-    for speed in range(0 ,11):
-        ppo.collect_expert_samples(300, "expert_model/SoftFootForwardBackwardJune10Size256X256.pt", speed=speed/10.0, y_speed=0)'''
+    RL.supervised = False
+    RL.policy_weight = 1
+    RL.actor_update_rate = 64
+    RL.critic_update_rate = 64
     with open('torch_model/cassie3dMirror2kHz_shared_obs_stats.pkl', 'rb') as input:
         ppo.shared_obs_stats = pickle.load(input)
     ppo.collect_samples_multithread()
@@ -627,3 +621,30 @@ if __name__ == '__main__':
     start = t.time()
 
     noise = -2.0
+
+def train_policy_rl_sl():
+    torch.set_num_threads(1)
+    env = cassieRLEnvMirror()
+    env.delay = False
+    env.noisy = False
+    ppo = RL(env, [256, 256])
+    RL.supervised = True
+    RL.policy_weight = 0
+    RL.actor_update_rate = 6400
+    RL.critic_update_rate = 0
+    for speed in range(0 ,1):
+        ppo.collect_expert_samples(300, "torch_model/StablePelvisForwardBackward256X256Jan25.pt", speed=speed/10.0, y_speed=0)
+    #for speed in range(-5, 0):
+        #ppo.collect_expert_samples(300, "torch_model/StablePelvisForwardBackward256X256Jan25.pt", speed=speed/10.0, y_speed=0)
+    #for speed in range(0 ,11):
+        #ppo.collect_expert_samples(300, "torch_model/StablePelvisForwardBackward256X256Jan25.pt", speed=speed/10.0, y_speed=0)
+    with open('torch_model/cassie3dMirror2kHz_shared_obs_stats.pkl', 'rb') as input:
+        ppo.shared_obs_stats = pickle.load(input)
+    ppo.collect_samples_multithread()
+
+    start = t.time()
+
+    noise = -2.0
+
+if __name__ == '__main__':
+    train_policy_rl_sl()

@@ -1,5 +1,6 @@
 from cassiemujoco import *
 from cassie_env.cassieRLEnvMirror import cassieRLEnvMirror
+from cassie_env.cassieRLEnvMirrorIKTraj import cassieRLEnvMirrorIKTraj
 
 import time as t
 
@@ -38,7 +39,8 @@ num_inputs = env.observation_space.shape[0]
 num_outputs = env.action_space.shape[0]
 
 model = ActorCriticNet(num_inputs, num_outputs,[256, 256])
-model.load_state_dict(torch.load("torch_model/StablePelvisForwardBackward256X256Jan25.pt"))
+#model.load_state_dict(torch.load("torch_model/StablePelvisForwardBackward256X256Jan25.pt"))
+model.load_state_dict(torch.load("torch_model/corl_demo.pt"))
 with open('torch_model/cassie3dMirror2kHz_shared_obs_stats.pkl', 'rb') as input:
 	shared_obs_stats = pickle.load(input)
 
@@ -72,7 +74,7 @@ def run_test():
 				state = shared_obs_stats.normalize(state)
 				mu, log_std, v = model(state)
 				eps = torch.randn(mu.size())
-				env_action = mu.data.squeeze().numpy()
+				env_action = mu.data.squeeze().numpy() + eps.data.squeeze().numpy() * 0.1
 				state, reward, done, _ = env.step(env_action)
 				env.vis.draw(env.sim)
 				total_reward += reward
@@ -119,3 +121,4 @@ def play_kin():
 		env.vis.draw(env.sim)
 
 run_test()
+#play_kin()
