@@ -146,7 +146,7 @@ class cassieRLEnvMirror(cassieRLEnvMultiTraj):
 
 	def reset(self):
 		self.orientation = 0
-		self.speed = (random.randint(-10, 10)) / 10.0
+		self.speed = 0#(random.randint(-10, 10)) / 10.0
 		orientation = self.orientation + random.randint(-20, 20) * np.pi / 100
 		quaternion = euler2quat(z=orientation, y=0, x=0)
 		self.phase = random.randint(0, 27)
