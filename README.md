@@ -12,3 +12,5 @@ Putorch is used to implement the neural network and learning algorithms.
 run mirror_test.py to simulate a pretrained policy.
 
 run RL_Mirror_Supervised.py to train policies. There are two methods in RL_Mirror_Supervised, train_policy_rl will train a policy from scratch, train_policy_rl_sl will train a policy by DASS samples from a pretrained policy. The default paramters can be used to train a stepping in place policy. To learn forward/backward walking, change the speed attribute in cassieRLEnvMirror.reset() accordingly.
+
+For the learning code (PPO), I started with code in this repo: https://github.com/alexis-jacq/Pytorch-DPPO.
