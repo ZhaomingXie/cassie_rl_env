@@ -7,7 +7,7 @@ Some RL enviornments for training policies for the bipedal robot Cassie. I try t
 
 cassieRlEnvMirror transform the state of the robot to its symmetric form every half step, enforcing symmetricity of the policy.
 
-Putorch is used to implement the neural network and learning algorithms.
+Pytorch is used to implement the neural network and learning algorithms.
 
 run mirror_test.py to simulate a pretrained policy.
 
