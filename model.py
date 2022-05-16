@@ -5,6 +5,7 @@ import torch.nn.functional as F
 from torch.autograd import Variable
 import torch.multiprocessing as mp
 
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 class ActorCriticNet(nn.Module):
     def __init__(self, num_inputs, num_outputs, hidden_layer=[64, 64]):
@@ -102,13 +103,21 @@ class Shared_grad_buffers():
 
 class Shared_obs_stats():
     def __init__(self, num_inputs):
-        self.n = torch.zeros(num_inputs).share_memory_()
-        self.mean = torch.zeros(num_inputs).share_memory_()
-        self.mean_diff = torch.zeros(num_inputs).share_memory_()
-        self.std = torch.zeros(num_inputs).share_memory_()
+        self.n = torch.zeros(num_inputs, device=device)
+        self.mean = torch.zeros(num_inputs, device=device)
+        self.mean_diff = torch.zeros(num_inputs, device=device)
+        self.std = torch.zeros(num_inputs, device=device)
         self.num_inputs = num_inputs
-        self.sum = torch.zeros(num_inputs).share_memory_()
-        self.sum_sqr = torch.zeros(num_inputs).share_memory_()
+        self.sum = torch.zeros(num_inputs, device=device)
+        self.sum_sqr = torch.zeros(num_inputs, device=device)
+
+    def to_cuda(self):
+        self.n = self.n.to(device)
+        self.mean = self.mean.to(device)
+        self.mean_diff = self.mean_diff.to(device)
+        self.std = self.std.to(device)
+        self.sum = self.sum.to(device)
+        self.sum_sqr = self.sum_sqr.to(device)
 
     def observes(self, obs):
         # observation mean var updates
@@ -122,14 +131,10 @@ class Shared_obs_stats():
             self.std = (self.sum_sqr / self.n - self.mean.pow(2)).clamp(1e-2,1e9).sqrt()
             self.mean = self.mean.float()
             self.std = self.std.float()
-        #self.mean = (self.mean * self.n + x) / self.
-            #self.mean += (x-self.mean)/self.n
-            #self.mean_diff += (x-last_mean)*(x-self.mean)
-            #self.var = torch.clamp(self.mean_diff/self.n, min=1e-2)
 
     def normalize(self, inputs):
-        obs_mean = Variable(self.mean.unsqueeze(0).expand_as(inputs))
-        obs_std = Variable(self.std.unsqueeze(0).expand_as(inputs))
+        obs_mean = self.mean.unsqueeze(0).expand_as(inputs)
+        obs_std = self.std.unsqueeze(0).expand_as(inputs)
         obs_mean = ((inputs - obs_mean) / obs_std)
         #obs_std = Variable(torch.sqrt(self.var).unsqueeze(0).expand_as(inputs))
         return torch.clamp(obs_mean, -10.0, 10.0)

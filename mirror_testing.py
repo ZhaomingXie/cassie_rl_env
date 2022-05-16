@@ -39,10 +39,15 @@ num_inputs = env.observation_space.shape[0]
 num_outputs = env.action_space.shape[0]
 
 model = ActorCriticNet(num_inputs, num_outputs,[256, 256])
-#model.load_state_dict(torch.load("torch_model/StablePelvisForwardBackward256X256Jan25.pt"))
-model.load_state_dict(torch.load("torch_model/corl_demo.pt"))
+model.load_state_dict(torch.load("torch_model/StablePelvisForwardBackward256X256Jan25.pt"))
+model.cuda()
+# model.load_state_dict(torch.load("torch_model/corl_demo.pt"))
 with open('torch_model/cassie3dMirror2kHz_shared_obs_stats.pkl', 'rb') as input:
 	shared_obs_stats = pickle.load(input)
+
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+if device.type == 'cuda':
+	shared_obs_stats.to_cuda()
 
 state_list = []
 env.visualize = True
@@ -70,11 +75,11 @@ def run_test():
 			for j in range(1):
 				counter += 1
 				clock += 1
-				state = Variable(torch.Tensor(state).unsqueeze(0))
+				state = torch.Tensor(state).unsqueeze(0).to(device)
 				state = shared_obs_stats.normalize(state)
 				mu, log_std, v = model(state)
 				eps = torch.randn(mu.size())
-				env_action = mu.data.squeeze().numpy() + eps.data.squeeze().numpy() * 0.1
+				env_action = mu.cpu().data.squeeze().numpy() + eps.cpu().data.squeeze().numpy() * 0.1
 				state, reward, done, _ = env.step(env_action)
 				env.vis.draw(env.sim)
 				total_reward += reward

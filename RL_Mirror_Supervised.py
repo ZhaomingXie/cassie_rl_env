@@ -67,13 +67,15 @@ class ReplayMemory(object):
         return map(lambda x: np.concatenate(x, 0), samples)
 
 def normal(x, mu, log_std):
-    a = (x - mu)/(log_std.exp())
+    a = (x - mu)/(log_std.exp().to(device))
     a = -0.5 * a.pow(2)
     a = torch.sum(a, dim=1)
-    b = torch.sum(log_std, dim=1)
+    b = torch.sum(log_std.to(device), dim=1)
     #print(result)
     return a-b
 
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+# device = torch.device("cpu")
 class RL(object):
     def __init__(self, env, hidden_layer=[64, 64]):
         self.env = env
@@ -85,7 +87,7 @@ class RL(object):
         self.params = Params()
 
         self.model = ActorCriticNet(self.num_inputs, self.num_outputs,self.hidden_layer)
-        self.model.share_memory()
+        self.gpu_model = ActorCriticNet(self.num_inputs, self.num_outputs, self.hidden_layer).to(device)
         self.shared_obs_stats = Shared_obs_stats(self.num_inputs)
         self.best_model = ActorCriticNet(self.num_inputs, self.num_outputs,self.hidden_layer)
         self.memory = ReplayMemory(self.params.num_steps * 10000)
@@ -453,17 +455,16 @@ class RL(object):
             q_values = []
 
     def update_critic(self, batch_size, num_epoch):
-        self.model.train()
-        optimizer = optim.Adam(self.model.parameters(), lr=self.lr*10)
-        model_old = ActorCriticNet(self.num_inputs, self.num_outputs, self.hidden_layer)
-        model_old.load_state_dict(self.model.state_dict())
+        self.gpu_model.load_state_dict(self.model.state_dict())
+        self.gpu_model.train()
+        self.gpu_model.set_noise(self.model.noise)
+        optimizer = optim.Adam(self.gpu_model.parameters(), lr=self.lr*10)
         for k in range(num_epoch):
             batch_states, batch_actions, batch_next_states, batch_rewards, batch_q_values = self.memory.sample(batch_size)
-            batch_states = Variable(torch.Tensor(batch_states))
-            batch_q_values = Variable(torch.Tensor(batch_q_values))
-            batch_next_states = Variable(torch.Tensor(batch_next_states))
-            _, _, v_pred_next = model_old(batch_next_states)
-            _, _, v_pred = self.model(batch_states)
+            batch_states = torch.Tensor(batch_states).to(device)
+            batch_q_values = torch.Tensor(batch_q_values).to(device)
+            batch_next_states = torch.Tensor(batch_next_states).to(device)
+            _, _, v_pred = self.gpu_model(batch_states)
             loss_value = (v_pred - batch_q_values)**2
             #loss_value = (v_pred_next * self.params.gamma + batch_rewards - v_pred)**2
             loss_value = 0.5*torch.mean(loss_value)
@@ -475,20 +476,20 @@ class RL(object):
         #print("value loss ", av_value_loss)
 
     def update_actor(self, batch_size, num_epoch, supervised=False):
-        model_old = ActorCriticNet(self.num_inputs, self.num_outputs, self.hidden_layer)
-        model_old.load_state_dict(self.model.state_dict())
-        model_old.set_noise(self.model.noise)
-        self.model.train()
-        optimizer = optim.Adam(self.model.parameters(), lr=self.lr)
+        model_old = ActorCriticNet(self.num_inputs, self.num_outputs, self.hidden_layer).to(device)
+        model_old.load_state_dict(self.gpu_model.state_dict())
+        model_old.set_noise(self.gpu_model.noise)
+        self.gpu_model.train()
+        optimizer = optim.Adam(self.gpu_model.parameters(), lr=self.lr)
         for k in range(num_epoch):
             batch_states, batch_actions, batch_next_states, batch_rewards, batch_q_values = self.memory.sample(batch_size)
 
-            batch_states = Variable(torch.Tensor(batch_states))
-            batch_q_values = Variable(torch.Tensor(batch_q_values))
-            batch_actions = Variable(torch.Tensor(batch_actions))
+            batch_states = torch.Tensor(batch_states).to(device)
+            batch_q_values = torch.Tensor(batch_q_values).to(device)
+            batch_actions = torch.Tensor(batch_actions).to(device)
             mu_old, log_std_old, v_pred_old = model_old(batch_states)
             #mu_old_next, log_std_old_next, v_pred_old_next = model_old(batch_next_states)
-            mu, log_std, v_pred = self.model(batch_states)
+            mu, log_std, v_pred = self.gpu_model(batch_states)
             batch_advantages = batch_q_values - v_pred_old
             probs_old = normal(batch_actions, mu_old, log_std_old)
             probs = normal(batch_actions, mu, log_std)
@@ -509,7 +510,7 @@ class RL(object):
                     batch_expert_states, batch_expert_actions, _, _, _ = self.expert_trajectory.sample(batch_size)
                 batch_expert_states = Variable(torch.Tensor(batch_expert_states))
                 batch_expert_actions = Variable(torch.Tensor(batch_expert_actions))
-                mu_expert, _, _ = self.model(batch_expert_states)
+                mu_expert, _, _ = self.gpu_model(batch_expert_states)
                 mu_expert_old, _, _ = model_old(batch_expert_states)
                 loss_expert1 = torch.mean((batch_expert_actions-mu_expert)**2)
                 clip_expert_action = torch.max(torch.min(mu_expert, mu_expert_old + 0.1), mu_expert_old-0.1)
@@ -519,13 +520,13 @@ class RL(object):
                 loss_expert = 0
 
             total_loss = self.policy_weight * loss_clip + self.weight*loss_expert
-            print(k, loss_expert)
             optimizer.zero_grad()
             total_loss.backward(retain_graph=True)
             #print(torch.nn.utils.clip_grad_norm(self.model.parameters(),1))
             optimizer.step()
         if self.lr > 1e-4:
             self.lr *= 0.99
+        self.model.load_state_dict(self.gpu_model.state_dict())
 
     def validation(self):
         batch_states, batch_actions, batch_next_states, batch_rewards, batch_q_values = self.validation_trajectory.sample(300)
@@ -574,6 +575,7 @@ class RL(object):
         self.model.set_noise(-2.0)
         while True:
             self.save_model("torch_model/corl_demo.pt")
+            import time; start = time.time()
             while len(self.memory.memory) < 3000:
                 #print(len(self.memory.memory))
                 if self.counter.get() == num_threads:
@@ -584,9 +586,10 @@ class RL(object):
                     self.counter.reset()
                     self.traffic_light.switch()
 
-            self.update_critic(128, self.critic_update_rate)
-            self.update_actor(128, self.actor_update_rate, supervised=self.supervised)
+            self.update_critic(512, self.critic_update_rate)
+            self.update_actor(512, self.actor_update_rate, supervised=self.supervised)
             self.clear_memory()
+            print("time spent on current iteration", time.time() - start)
             self.run_test(num_test=2)
             self.run_test_with_noise(num_test=2)
             #self.validation()
@@ -612,8 +615,8 @@ def train_policy_rl():
     ppo = RL(env, [256, 256])
     RL.supervised = False
     RL.policy_weight = 1
-    RL.actor_update_rate = 64
-    RL.critic_update_rate = 64
+    RL.actor_update_rate = 16
+    RL.critic_update_rate = 16
     with open('torch_model/cassie3dMirror2kHz_shared_obs_stats.pkl', 'rb') as input:
         ppo.shared_obs_stats = pickle.load(input)
     ppo.collect_samples_multithread()
@@ -647,4 +650,4 @@ def train_policy_rl_sl():
     noise = -2.0
 
 if __name__ == '__main__':
-    train_policy_rl_sl()
+    train_policy_rl()
